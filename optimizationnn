@@ -1,0 +1,334 @@
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from pylib.tf_utils import mnist_train, mnist_test
+from tensorflow.keras.utils import to_categorical as one_hot
+
+import matplotlib.pyplot as plt
+
+from pylib.draw_nn import draw_neural_net_fig   
+
+#Stochastic Optimization
+
+import gzip
+import json
+from sklearn.model_selection import ShuffleSplit
+
+with gzip.open("small_data/cal_house.json.gz", "r") as fin:
+    housing = json.load(fin)
+    
+for train, test in ShuffleSplit(1, test_size=0.2, random_state=42).split(housing['data']):
+    X_train = np.array(housing['data'])[train].astype(np.float32)
+    y_train = np.array(housing['target'])[train].astype(np.float32)
+    X_test = np.array(housing['data'])[test].astype(np.float32)
+    y_test = np.array(housing['target'])[test].astype(np.float32)
+    
+X_mean = X_train.mean(axis=0)
+X_std = X_train.std(axis=0)
+
+Xs_train = (X_train - X_mean) / X_std
+Xs_test = (X_test - X_mean) / X_std
+
+import tqdm.notebook
+
+class AutoLinearRegression():
+    def __init__(self, eta=.1):
+        self.W = tf.Variable(0.)
+        self.b = tf.Variable(0.)
+        self.opt = tf.keras.optimizers.SGD(learning_rate=eta)
+    
+    def predict(self, X):
+        return X * self.W + self.b
+    
+    def loss(self, X, y, return_func=False):
+        def loss_():
+            return tf.reduce_mean(tf.square(self.predict(X) - y))
+        
+        if not return_func:
+            return loss_()
+        
+        return loss_
+    
+    def fit(self, X, y, steps=10):
+        for _ in range(steps):
+            self.opt.minimize(self.loss(X, y, return_func=True), [self.W, self.b])
+            
+BATCH_SIZE = 10
+ETAS = [.2, .1, .01]
+
+errors = []
+Ws = []
+
+for e in ETAS:
+    model = AutoLinearRegression(eta=e)
+    errors.append([model.loss(Xs_test[:, 0:1], y_test.reshape(-1, 1)).numpy()])
+    Ws.append([model.W.numpy()])
+    for i in tqdm.notebook.tqdm(range(len(y_train) // BATCH_SIZE)):
+        j = np.random.choice(len(y_train), BATCH_SIZE, replace=False)
+        model.fit(Xs_train[j, 0:1], y_train[j].reshape(-1, 1), steps=1)
+        errors[-1].append(model.loss(Xs_test[:, 0:1], y_test[:].reshape(-1, 1)).numpy())
+        Ws[-1].append(model.W.numpy())
+        
+plt.plot(np.array(errors).T, '.-')
+plt.legend(ETAS, title=r'$\eta$')
+plt.xlabel('step')
+plt.ylabel('loss');
+plt.ylim((0, np.array(errors)[:, 0].max() * 1.1));
+
+
+#Exploring loss surface
+
+
+EPOCHS = 10
+BATCH_SIZE = len(y_train)
+ETAS = [0.1, 0.5, 0.8, 1.01]
+
+errors = []
+Ws = []
+
+for e in ETAS:
+    model = Aut#ExploLinearRegression(eta=e)
+    errors.append([model.loss(Xs_test[:, 0:1], y_test.reshape(-1, 1)).numpy()])
+    Ws.append([model.W.numpy()])
+    for _ in range(EPOCHS):
+        for i in range(len(y_train) // BATCH_SIZE):
+            j = np.random.choice(len(y_train), BATCH_SIZE, replace=False)
+            model.fit(Xs_train[j, 0:1], y_train[j].reshape(-1, 1), steps=1)
+            errors[-1].append(model.loss(Xs_test[:, 0:1], y_test[:].reshape(-1, 1)).numpy())
+            Ws[-1].append(model.W.numpy())
+
+plt.plot(np.array(Ws).T, np.array(errors).T, '.-')
+# This is just an eyeball estimate of the loss function
+plt.plot(np.linspace(-0.4, 2.0),
+         7.8 * (np.linspace(-0.4, 2.0) - 0.79)**2 + 0.6, 'k:')
+plt.legend(ETAS, title=r'$\eta$')
+plt.xlabel('$W$')
+plt.ylabel('loss');
+
+
+#Overfitting
+
+X_train, y_train = mnist_train()
+X_test, y_test = mnist_test()
+
+y_train = one_hot(y_train)
+y_test  = one_hot(y_test)
+
+N_PIXELS= 28 * 28
+N_CLASSES = 10
+
+n_epochs = 1 # 25
+
+
+x = np.linspace(-1, 1, 20).reshape(-1, 1)
+xl = np.linspace(-1, 1, 200).reshape(-1, 1)
+X = np.column_stack([x**n for n in range(1,20)])
+XL = np.column_stack([xl**n for n in range(1,20)])
+
+np.random.seed(1)
+y = 2 * x + np.random.normal(0, .2, (20, 1))
+
+m, _, _, _ = np.linalg.lstsq(x, y, rcond=None)
+W, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+
+plt.plot(x, y, '.', ms=15)
+plt.plot(xl, xl.dot(m))
+plt.plot(xl, XL.dot(W))
+plt.ylim(-2.3, 2.3)
+
+print("Linear Model MSE (train):", np.mean((y - x.dot(m))**2) / len(y))
+print("Polynomial Model MSE (train):", np.mean((y - X.dot(W))**2) / len(y))
+
+
+xt = np.random.uniform(-1, 1, 11).reshape(-1, 1)
+XT = np.column_stack([xt**n for n in range(1,20)])
+
+yt = 2 * xt + np.random.normal(0, .2, (11, 1))
+
+plt.plot(x, y, '.', ms=15, alpha=0.2)
+plt.plot(xl, xl.dot(m))
+plt.plot(xl, XL.dot(W))
+plt.plot(xt, yt, '.', ms=15)
+plt.ylim(-2.3, 2.3)
+
+print("Linear Model MSE (test):", np.mean((yt - xt.dot(m))**2) / len(yt))
+print("Polynomial Model MSE (test):", np.mean((yt - XT.dot(W))**2) / len(yt))
+
+
+hidden_size = 1024
+
+model = keras.models.Sequential()
+
+model.add(
+    keras.layers.Dense(
+        hidden_size,
+        activation='sigmoid',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=N_PIXELS**-0.5)
+    )
+)
+model.add(
+    keras.layers.Dense(
+        hidden_size, 
+        activation='sigmoid',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=hidden_size**-0.5)
+    )
+)
+model.add(
+    keras.layers.Dense(
+        N_CLASSES,
+        activation='softmax',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=hidden_size**-0.5)
+    )
+)
+
+model.compile(loss='categorical_crossentropy',
+              optimizer=keras.optimizers.SGD(learning_rate=0.3), 
+              metrics=['accuracy'])                 
+                                                       
+history_overfit = model.fit(X_train, y_train,
+                            epochs=n_epochs,
+                            batch_size=30,
+                            validation_data=(X_test,y_test))
+                            
+                            
+                            
+ #regularization
+ 
+ from tensorflow.keras import regularizers
+
+alpha = 2.5 * 10 ** -7
+
+model = keras.models.Sequential()
+
+model.add(
+    keras.layers.Dense(
+        hidden_size, 
+        activation='sigmoid',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=N_PIXELS**-0.5),
+        kernel_regularizer=regularizers.l2(alpha)
+    )
+)
+model.add(
+    keras.layers.Dense(
+        hidden_size, 
+        activation='sigmoid',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=hidden_size**-0.5),
+        kernel_regularizer=regularizers.l2(alpha)
+    )
+)
+model.add(
+    keras.layers.Dense(
+        N_CLASSES,
+        activation='softmax',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=hidden_size**-0.5),
+        kernel_regularizer=regularizers.l2(alpha)
+    )
+)
+
+model.compile(loss='categorical_crossentropy',
+              optimizer=keras.optimizers.SGD(learning_rate=0.3), 
+              metrics=['accuracy'])
+
+history_reg = model.fit(X_train, y_train,
+                        epochs=n_epochs,
+                        batch_size=30,
+                        validation_data=(X_test,y_test))
+                        
+                        
+  #Dropout
+  
+  
+  # Network with 50% dropput
+draw_neural_net_fig([20, 14, 12, 10], 0.5)
+
+
+rate = 0.2 
+
+model = keras.models.Sequential()
+
+model.add(keras.layers.Dropout(rate))
+model.add(
+    keras.layers.Dense(
+        hidden_size, 
+        activation='sigmoid',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=N_PIXELS**-0.5)
+    )
+)
+model.add(keras.layers.Dropout(rate))
+model.add(
+    keras.layers.Dense(
+        hidden_size, 
+        activation='sigmoid',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=hidden_size**-0.5)
+    )
+)
+model.add(keras.layers.Dropout(rate))
+model.add(
+    keras.layers.Dense(
+        N_CLASSES,
+        activation='softmax',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=hidden_size**-0.5)
+    )
+)
+
+model.compile(loss='categorical_crossentropy',
+              optimizer=keras.optimizers.SGD(learning_rate=0.3),
+              metrics=['accuracy'])            
+                                               
+history_drop = model.fit(X_train, y_train,            
+                         epochs=n_epochs,                  
+                         batch_size=30,
+                         validation_data=(X_test,y_test))
+                         
+                         
+for _ in range(3):
+    model.fit(X_train, y_train,
+              epochs=1,
+              batch_size=30)
+    print("Train:", model.evaluate(X_train, y_train, verbose=0))
+    print("Test:", model.evaluate(X_test, y_test, verbose=0))       
+    
+    
+ #Batch Normalization
+ 
+ m = 0.99
+
+model = keras.models.Sequential()
+
+model.add(
+    keras.layers.Dense(
+        hidden_size, 
+        activation=None,
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=N_PIXELS**-0.5)
+    )
+)
+model.add(keras.layers.BatchNormalization(momentum=m))
+model.add(keras.layers.Activation('sigmoid'))
+
+model.add(
+    keras.layers.Dense(
+        hidden_size, 
+        activation=None,
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=hidden_size**-0.5)
+    )
+)
+model.add(keras.layers.BatchNormalization(momentum=m))
+model.add(keras.layers.Activation('sigmoid'))
+
+model.add(
+    keras.layers.Dense(
+        N_CLASSES,
+        activation='softmax',
+        kernel_initializer=keras.initializers.TruncatedNormal(stddev=hidden_size**-0.5)
+    )
+)
+       
+model.compile(loss='categorical_crossentropy',             
+              optimizer=keras.optimizers.SGD(learning_rate=0.05), 
+              metrics=['accuracy'])            
+                                        
+history_batch = model.fit(X_train, y_train,             
+                          epochs=n_epochs,                  
+                          batch_size=30,
+                          validation_data=(X_test,y_test))
+ 
